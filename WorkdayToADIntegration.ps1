@@ -74,6 +74,7 @@ if(Check-WorkdayFTP)
                 }
                 else
                 {
+                    Notify-NewHire -User $user
                     Post-NewTicket -CC @($user.ManagerEmail,"allcrm@kengarff.com") -Subject $Subject -Response (Create-NewHireHelpdeskResponse -User $User -Username $Username -Password $Password) -HDDepartment 20
                 }
             }
@@ -102,7 +103,9 @@ if(Check-WorkdayFTP)
                 $CC = $user.ManagerEmail
                 $Response = Get-TerminationTicketResponse -User $user -ADUser $ADUser
 
-                Send-TermEmail -User $User -ADUser $Aduser
+                #Send-TermEmail -User $User -ADUser $Aduser
+
+                Notify-Termination -User $User -ADUser $Aduser
 
                 Post-NewTicket -Subject $Subject -CC $CC -Response $Response -HDDepartment 22                
             }

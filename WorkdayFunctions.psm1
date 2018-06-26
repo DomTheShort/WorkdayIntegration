@@ -52,7 +52,7 @@ function Post-NewTicket
 {
     param([string]$Response,[array]$CC,[string]$Subject,$HDDepartment)
 
-    $SessionID = Connect-Helpdesk -user autosupport -password '&koh#Ng082S'
+    $SessionID = Connect-Helpdesk -user autosupport -password 'REDACTED'
 
     $XMLString = '<kayako_staffapi><create><subject>'+$Subject+'</subject><fullname>Automated Support</fullname><email>autosupport@kengarff.com</email>
     <departmentid>'+$HDDepartment+'</departmentid><ticketstatusid>1</ticketstatusid><ticketpriorityid>1</ticketpriorityid>
@@ -127,7 +127,7 @@ function Create-UpdateHelpdeskResponse
 {
     param($PreUser,$PostUser)
 
-    Sanitize-UserInfo -User $User
+    Sanitize-UserInfo -User $PreUser
 
     $Response = "Name: " + $PreUser.DisplayName + (Compare-UserFields -Prefield $PreUser.DisplayName -PostField $PostUser.DisplayName)  + "&#xA;"
     $Response += "Title: " + $PreUser.Title + (Compare-UserFields -Prefield $PreUser.Title -PostField $PostUser.Title)  + "&#xA;"
@@ -142,7 +142,7 @@ function Create-UpdateHelpdeskResponse
 
     $Response += "Login: " + $PreUser.UserPrincipalName + (Compare-UserFields -Prefield $PreUser.UserPrincipalName -PostField $PostUser.UserPrincipalName)  + "&#xA;"
 
-    $CopyUser = Get-UserForReynoldsCopy -user $User
+    $CopyUser = Get-UserForReynoldsCopy -user $PreUser
 
     $Response += "User for Reynolds Copy: " + $CopyUser + "&#xA;"
 
@@ -247,7 +247,7 @@ function Get-SMTPServer
 {
     $smtpServer = "smtp.office365.com"
     $Login = "autosupport@kengarff.com"
-    $Password = '^&AOo456nA$ohsedgf^*U&456d'
+    $Password = 'REDACTED'
     $smtp = new-object Net.Mail.SmtpClient($smtpServer, 587)
     $smtp.EnableSsl = $true
     $smtp.Credentials = New-Object System.Net.NetworkCredential($Login,$Password)
@@ -284,6 +284,32 @@ function Notify-NewHire
     {
         $Email = $NotificationEmails | Where {$_.description -eq "CRM"} | Select emailAddress
         Send-NewHireEmail -User $User -ADUser $ADUser -To $Email.emailAddress
+    }
+}
+
+function Notify-Termination
+{
+    param($User,$ADUser)
+
+    $NotificationSettings = Get-NotificationSettings -Title $User.Title
+    $NotificationEmails = Get-NotificationEmails
+
+    if($NotificationSettings.notifyServiceDirector -eq $true)
+    {
+        $Email = $NotificationEmails | Where {$_.description -eq "ServiceDirector"} | Select emailAddress
+        Send-TermEmail -User $User -ADUser $ADUser -To $Email.emailAddress
+    }
+    
+    if($NotificationSettings.notifyCRM -eq $true)
+    {
+        $Email = $NotificationEmails | Where {$_.description -eq "CRM"} | Select emailAddress
+        Send-TermEmail -User $User -ADUser $ADUser -To $Email.emailAddress
+    }
+
+        if($NotificationSettings.notifyKornerstone -eq $true)
+    {
+        $Email = $NotificationEmails | Where {$_.description -eq "Kornerstone"} | Select emailAddress
+        Send-TermEmail -User $User -ADUser $ADUser -To $Email.emailAddress
     }
 }
 
@@ -340,6 +366,18 @@ function Send-NewHireEmail
     Send-Email -To $To -From $emailFrom -Subject $Subject -Body $Body -ReplyTo $User.ManagerEmail
 }
 
+function Send-TermEmail
+{
+    param($User,$ADUser,$To)
+
+    $emailFrom = "autosupport@kengarff.com"
+    $subject = "Termination Notification - " + $User.PreferredName + " @ " + $user.Dealership
+
+    $body = Get-TerminationEmailResponse -User $User -ADUser $ADUser
+
+    Send-Email -To $To -From $emailFrom -Subject $Subject -Body $Body -ReplyTo $User.ManagerEmail
+}
+
 
 
 function Send-CRMNewHireEmail
@@ -374,12 +412,12 @@ function Get-CRMNewHireResponse
     return $Response
 }
 
-function Send-TermEmail
+function Send-TermEmailOld
 {
     param($User,$ADUser)
 
     $From = "autosupport@Kengarff.com"
-    $ToArray = @("allcrm@kengarff.com","ceceliaa@kornerstoneadmin.com","joelu@kengarff.com","molson@kengarff.com","mbigler@kengarff.com")
+    $ToArray = @("allcrm@kengarff.com","ceceliaa@kornerstoneadmin.com","mbigler@kengarff.com")
     $Subject = $Subject = "Termination - " + $user.preferredName + " - " + $ADUser.Company
 
     $Body = Get-TerminationEmailResponse -User $User -ADUser $ADUser
@@ -600,6 +638,29 @@ function Check-AccentedCharacters
     return !($String -match $AccentedCharacters)
 }
 
+function Replace-IllegalCharacters
+{
+    param([string]$string)
+
+    $hash = @{à="a";á="a";â="a";ã="a";ä="a";ç="c";è="e";é="e";ê="e";ë="e";ì="i";í="i";î="i";ï="i";ñ="n";ò="o";ó="o";ô="o";õ="o";ö="o";š="s";ù="u";ú="u";û="u";ü="u";ý="y";ÿ="y";ž="z"}
+
+    $letterArray = $string.ToCharArray()
+
+    for($i=0;$i -lt $letterArray.length;$i++)
+    {
+    
+        if($letterArray[$i] -in $hash.Keys)
+        {
+            $index = $letterArray[$i]
+
+            $letterArray[$i] = $hash["$index"]
+        }
+    }
+
+    return ($letterArray -join "")
+    
+}
+
 #User Groups Functions
 function Update-ADUserSecurityGroup
 {
@@ -614,6 +675,27 @@ function Remove-AllUserGroups
 
     Get-ADPrincipalGroupMembership -Identity $User | Where-Object {$_.name -ne "Domain Users" } | foreach { Remove-ADPrincipalGroupMembership -Identity $User -MemberOf $_ -Confirm:$false}
 
+}
+
+function Remove-AutomaticGroups 
+{
+    param($User)
+
+    $Groups = Get-AllSecurityGroups
+
+    Remove-ADPrincipalGroupMembership -Identity $User -MemberOf $Groups -Confirm:$false
+}
+
+function Add-UserSecurityGroups {
+
+    param($User)
+
+    $SecurityGroups = Get-SecurityGroups -Title $User.Title
+
+    foreach($Group in $SecurityGroups)
+    {
+        Get-ADGroup -Identity $Group | Add-ADGroupMember -Members $User
+    }
 }
 
 #Retrival Functions
@@ -661,29 +743,54 @@ function Create-ADUser
         $inputUser.SSN = (Get-Random -Maximum 9999 -Minimum 1000)
     }
 
-    $Password = "K3NG4RFF" + $inputUser.SSN + "!!"
+    $Password = "REDACTED" + $inputUser.SSN + "!!"
 
     $Domain = Get-EmailDomain -Dealership $inputUser.Dealership
 
-    New-ADUser -SamAccountName $inputUsername -UserPrincipalName ($inputUsername + $Domain) -AccountPassword (ConvertTo-SecureString -AsPlainText $Password -Force) -Name $inputUser.PreferredName -DisplayName $inputUser.PreferredName -GivenName $inputUser.FirstName -Surname $inputUser.LastName -EmployeeNumber $inputUser.EmployeeNumber -Company $inputUser.Dealership -Title $inputUser.Title -Path (Get-OU -Title $inputUser.Title -Dealership $inputUser.Dealership) -PassThru | Enable-ADAccount
+    $OU = (Get-OU -Title $inputUser.Title -Dealership $inputUser.Dealership)
 
-    #-Path (Get-OU -Title $inputUser.Title -Dealership $inputUser.Dealership)
+    if([adsi]::Exists("LDAP://$OU"))
+    {
+        New-ADUser -SamAccountName $inputUsername -UserPrincipalName ($inputUsername + $Domain) -AccountPassword (ConvertTo-SecureString -AsPlainText $Password -Force) -Name $inputUser.PreferredName -DisplayName $inputUser.PreferredName -GivenName $inputUser.FirstName -Surname $inputUser.LastName -EmployeeNumber $inputUser.EmployeeNumber -Company $inputUser.Dealership -Title $inputUser.Title -Path $OU -PassThru | Enable-ADAccount
 
-    #Update-ADUser -ADUser (Get-AdUserByEmployeeNumber -EmployeeNumber $inputUser.EmployeeNumber) -UpdateInfo $inputUser
+        $newUser = Get-adUser $inputUsername
 
-    $newUser = Get-adUser $inputUsername
-
-    $newUser.Department = ($inputUser.Department.Split(' ('))[0]
-    $newUser.mail = $newUser.UserprincipalName
-    $newUser.ProxyAddresses = "SMTP:" + $newUser.UserprincipalName
+        $newUser.Department = ($inputUser.Department.Split(' ('))[0]
+        $newUser.mail = $newUser.UserprincipalName
+        $newUser.ProxyAddresses = "SMTP:" + $newUser.UserprincipalName
+        $newUser.State = Get-Region -Dealership $inputUser.Dealership
     
-    $manager = Get-ADUserByEmailAddress -EmailAddress $inputUser.ManagerEmail
+        $manager = Get-ADUserByEmailAddress -EmailAddress $inputUser.ManagerEmail
 
-    $newUser.Manager = $manager.DistinguishedName
+        $newUser.Manager = $manager.DistinguishedName
 
-    Set-Aduser -Instance $newUser
+        Set-Aduser -Instance $newUser
 
-    $Subject = "New Hire - " + $user.PreferredName + " @ " + $user.Dealership
+        Add-UserSecurityGroups -User $newUser
+
+        $Subject = "New Hire - " + $user.PreferredName + " @ " + $user.Dealership
+    }
+    else
+    {
+        New-ADUser -SamAccountName $inputUsername -UserPrincipalName ($inputUsername + $Domain) -AccountPassword (ConvertTo-SecureString -AsPlainText $Password -Force) -Name $inputUser.PreferredName -DisplayName $inputUser.PreferredName -GivenName $inputUser.FirstName -Surname $inputUser.LastName -EmployeeNumber $inputUser.EmployeeNumber -Company $inputUser.Dealership -Title $inputUser.Title -Path "OU=Users,OU=New Items,DC=ad,DC=kengarff,DC=com" -PassThru | Enable-ADAccount
+
+        $newUser = Get-adUser $inputUsername
+
+        $newUser.Department = ($inputUser.Department.Split(' ('))[0]
+        $newUser.mail = $newUser.UserprincipalName
+        $newUser.ProxyAddresses = "SMTP:" + $newUser.UserprincipalName
+    
+        $manager = Get-ADUserByEmailAddress -EmailAddress $inputUser.ManagerEmail
+
+        $newUser.Manager = $manager.DistinguishedName
+
+        Set-Aduser -Instance $newUser
+        Add-UserSecurityGroups -User $newUser
+
+        $Subject = "New Hire - " + $user.PreferredName + " @ " + $user.Dealership + " - Created In Default"
+    }
+
+    
     Post-NewTicket -CC $inputUser.ManagerEmail -Subject $Subject -Response (Create-NewHireHelpdeskResponse -User $inputUser -Username ($inputUsername+$Domain) -Password $Password) -HDDepartment 20   
 
    
@@ -749,6 +856,9 @@ function Generate-EmailAddress
     return $email
 }
 
+
+
+
 #Update Functions
 function Update-ADUser 
 {
@@ -776,6 +886,7 @@ function Update-ADUser
     $AdUser.Company = $UpdateInfo.Dealership
     $AdUser.Department = $UpdateInfo.Department
     $AdUser.Title = $UpdateInfo.Title
+    $AdUser.State = Get-Region -Dealership $UpdateInfo.Dealership
 
     $manager = Get-ADUserByEmailAddress -EmailAddress $UpdateInfo.ManagerEmail
 
@@ -797,6 +908,8 @@ function Update-ADUser
     }
 
     Set-AdUser -Instance $ADUser
+    Remove-AutomaticGroups -ADUser
+    Add-UserSecurityGroups -User $ADUser
 
     Rename-ADObject $adUser.DistinguishedName -NewName $UpdateInfo.PreferredName
 
@@ -859,6 +972,24 @@ function Get-EmailDomain
     $Results = Run-SQLCommand $SQLQuery
 
     return $Results.Tables.domainDescription
+}
+
+function Get-SecurityGroups {
+
+    param($Title)
+
+    $SQLQuery = "Select S.securityGroupName FROM JobProfileToSecurityGroup J, JobProfile P, SecurityGroup S WHERE p.jobProfileDescription = '$Title' AND J.jobProfileID = P.jobProfileID AND J.securityGroupID = S.securityGroupID"
+    $Results = Run-SQLCommand $SQLQuery
+
+    return $Results.Tables.securityGroupName
+}
+
+function Get-AllSecurityGroups {
+
+    $SQLQuery = "Select S.securityGroupName FROM SecurityGroup S"
+    $Results = Run-SQLCommand $SQLQuery
+
+    return $Results.Tables.securityGroupName
 }
 
 function Get-EmailPreference
@@ -932,12 +1063,23 @@ function Get-NotificationEmails
     return $results.Tables
 }
 
+function Get-Region
+{
+    param($Dealership)
+
+    $SqlQuery = "SELECT r.regionOUDescription FROM RegionOU r, CityOU c, DealershipOU d WHERE d.cityOUID = c.cityOUID AND c.regionOUID = r.regionOUID AND d.workdayDescription = '$Dealership'"
+
+    $Results = Run-SQLCommand $SqlQuery
+
+    return $results.Tables.regionOUDescription
+}
+
 #Exchange Functions
 
 function Connect-Exchange
 {
     $user = "autosupport@kengarff.com"
-    $Password = ConvertTo-SecureString -String "^&AOo456nA`$ohsedgf^*U&456d" -AsPlainText -Force
+    $Password = ConvertTo-SecureString -String "REDACTED" -AsPlainText -Force
     
     $UserCredential = New-Object -TypeName "System.Management.Automation.PSCredential" -ArgumentList $User, $Password
 
@@ -955,7 +1097,7 @@ function Set-ExchangeLicense
     param($user,$licenseType)
 
     $logon = "svcAzureAD@kengarffit.com"
-    $password = ConvertTo-SecureString -String "%tNh3@ki5A" -AsPlainText -Force
+    $password = ConvertTo-SecureString -String "REDACTED" -AsPlainText -Force
     $credential = New-Object -TypeName "System.Management.Automation.PSCredential" -ArgumentList $logon, $password
 
     Connect-MsolService -Credential $credential
